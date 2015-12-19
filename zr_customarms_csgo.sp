@@ -63,6 +63,8 @@ public ZR_OnClientHumanPost(client, bool:respawn, bool:protect)
 
 Arms(client)
 {
+	if(!IsPlayerAlive(client)) return;
+	
 	new cindex = ZR_GetActiveClass(client);
 	if(!ZR_IsValidClassIndex(cindex)) return;
 	
