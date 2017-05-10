@@ -20,13 +20,16 @@
 #include <sdktools>
 #include <zombiereloaded>
 #include <cstrike>
+#include <n_arm_fix>
+
+#define DEFAULT_ARMS "models/weapons/ct_arms.mdl"
 
 public Plugin:myinfo =
 {
 	name = "ZR Custom CS:GO Arms",
 	author = "Franc1sco franug",
 	description = "",
-	version = "4.0",
+	version = "5.0",
 	url = "http://steamcommunity.com/id/franug"
 };
 
@@ -35,36 +38,18 @@ new Handle:hPlayerClasses, String:sClassPath[PLATFORM_MAX_PATH] = "configs/zr/pl
 
 new Handle:trie_classes;
 
-
-new String:manos[MAXPLAYERS+1][128];
-
 public OnPluginStart() 
 {
 	trie_classes = CreateTrie();
-
-	HookEvent("player_spawn", OnSpawn);
-	
-	HookEvent("round_start", Restart);
-	
-	for(new i = 1; i <= MaxClients; i++)
-		if(IsClientInGame(i)) OnClientPutInServer(i);
-}
-
-public OnClientPutInServer(client)
-{
-	Format(manos[client], 128, "models/weapons/ct_arms_gign.mdl");
 }
 
 public OnMapStart()
 {
-	PrecacheModel("models/weapons/ct_arms_gign.mdl");
+	PrecacheModel(DEFAULT_ARMS);
 }
 
-public Action:OnSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
+public void ArmsFix_OnArmsSafe(int client)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if(IsPlayerAlive(client) && ZR_IsClientHuman(client)) GetEntPropString(client, Prop_Send, "m_szArmsModel", manos[client], 64);
-	
 	Arms(client);
 }
 
@@ -87,43 +72,64 @@ Arms(client)
 	
 	decl String:namet[64],String:model[128], String:currentmodel[128];
 	ZR_GetClassDisplayName(cindex, namet, sizeof(namet));
-	if(!GetTrieString(trie_classes, namet, model, sizeof(model))) return;
+	if(!GetTrieString(trie_classes, namet, model, sizeof(model)))
+	{
+		return;
+	}
 	
 	GetEntPropString(client, Prop_Send, "m_szArmsModel", currentmodel, sizeof(currentmodel));
 	
 	if(strlen(model) > 3) 
 	{
-		if(!StrEqual(currentmodel, model)) SetEntPropString(client, Prop_Send, "m_szArmsModel", model);
-		//PrintToChat(client, "used %s with class %i",model, cindex);
+		if(!StrEqual(currentmodel, model)) 
+		{
+			SetEntPropString(client, Prop_Send, "m_szArmsModel", model);
+			CreateTimer(0.15, RemoveItemTimer, EntIndexToEntRef(client), TIMER_FLAG_NO_MAPCHANGE);
+		}
 	}
 	else
 	{
-		if(!StrEqual(currentmodel, manos[client])) SetEntPropString(client, Prop_Send, "m_szArmsModel", manos[client]);
-		//PrintToChat(client, "used %s with class %i",manos[client], cindex);
+		if(!StrEqual(currentmodel, DEFAULT_ARMS))
+		{
+			SetEntPropString(client, Prop_Send, "m_szArmsModel", DEFAULT_ARMS);
+			CreateTimer(0.15, RemoveItemTimer, EntIndexToEntRef(client), TIMER_FLAG_NO_MAPCHANGE);
+		}
 	}
 }
 
-public Action:Restart(Handle:event, const String:name[], bool:dontBroadcast)
+public Action RemoveItemTimer(Handle timer ,any ref)
 {
-	CreateTimer(0.5, Cleaner);
-	CreateTimer(0.75, Cleaner);
+	int client = EntRefToEntIndex(ref);
+
+	if (client != INVALID_ENT_REFERENCE)
+	{
+		int item = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+
+		if (item > 0)
+		{
+			RemovePlayerItem(client, item);
+
+			Handle ph=CreateDataPack();
+			WritePackCell(ph, EntIndexToEntRef(client));
+			WritePackCell(ph, EntIndexToEntRef(item));
+			CreateTimer(0.15 , AddItemTimer, ph, TIMER_FLAG_NO_MAPCHANGE);
+		}
+	}
 }
 
-public Action:Cleaner(Handle:timer)
-{
- 	for (new i = 1; i < MaxClients; i++)
-		if(IsClientInGame(i) && IsPlayerAlive(i))
-		{
-			Arms(i);
-			if(GetClientTeam(i) == CS_TEAM_T)
-			{
-				CS_SwitchTeam(i, CS_TEAM_CT);
-			}
-			else if(GetClientTeam(i) == CS_TEAM_CT)
-			{
-				CS_SwitchTeam(i, CS_TEAM_T);
-			}
-		}
+public Action AddItemTimer(Handle timer ,any ph)
+{ 
+	int client, item;
+
+	ResetPack(ph);
+
+	client = EntRefToEntIndex(ReadPackCell(ph));
+	item = EntRefToEntIndex(ReadPackCell(ph));
+
+	if (client != INVALID_ENT_REFERENCE && item != INVALID_ENT_REFERENCE)
+	{
+		EquipPlayerWeapon(client, item);
+	}
 }
 
 //
