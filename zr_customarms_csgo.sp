@@ -1,6 +1,6 @@
 /*  ZR Custom CS:GO Arms
  *
- *  Copyright (C) 2017 Francisco 'Franc1sco' García
+ *  Copyright (C) 2017-2019 Francisco 'Franc1sco' García
  * 
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -20,16 +20,15 @@
 #include <sdktools>
 #include <zombiereloaded>
 #include <cstrike>
-#include <n_arm_fix>
 
-#define DEFAULT_ARMS "models/weapons/ct_arms.mdl"
+#define DEFAULT_ARMS "models/weapons/ct_arms_gign.mdl"
 
 public Plugin:myinfo =
 {
 	name = "ZR Custom CS:GO Arms",
 	author = "Franc1sco franug",
 	description = "",
-	version = "5.0",
+	version = "5.1",
 	url = "http://steamcommunity.com/id/franug"
 };
 
@@ -41,6 +40,8 @@ new Handle:trie_classes;
 public OnPluginStart() 
 {
 	trie_classes = CreateTrie();
+
+	HookEvent("player_spawn", OnSpawn);
 }
 
 public OnMapStart()
@@ -48,19 +49,30 @@ public OnMapStart()
 	PrecacheModel(DEFAULT_ARMS);
 }
 
-public void ArmsFix_OnArmsSafe(int client)
+public Action:OnSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
 {
-	Arms(client);
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	CreateTimer(0.7, Timer_SafeApply, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public ZR_OnClientInfected(client, attacker, bool:motherInfect, bool:respawnOverride, bool:respawn)
 {
+	CreateTimer(0.7, Timer_SafeApply, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+	//Arms(client);
+}
+
+public Action Timer_SafeApply(Handle timer, int id)
+{
+	int client = GetClientOfUserId(id);
+	
+	if (!client || !IsClientInGame(client))return;
 	Arms(client);
+	
 }
 
 public ZR_OnClientHumanPost(client, bool:respawn, bool:protect)
 {
-	Arms(client);
+	CreateTimer(0.7, Timer_SafeApply, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
 Arms(client)
@@ -72,67 +84,73 @@ Arms(client)
 	
 	decl String:namet[64],String:model[128], String:currentmodel[128];
 	ZR_GetClassDisplayName(cindex, namet, sizeof(namet));
-	if(!GetTrieString(trie_classes, namet, model, sizeof(model)))
-	{
-		return;
-	}
+	if(!GetTrieString(trie_classes, namet, model, sizeof(model))) return;
 	
 	GetEntPropString(client, Prop_Send, "m_szArmsModel", currentmodel, sizeof(currentmodel));
 	
 	if(strlen(model) > 3) 
 	{
-		if(!StrEqual(currentmodel, model)) 
-		{
+
+			int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			if(activeWeapon != -1)
+			{
+				SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", -1);
+			}
+			if(activeWeapon != -1)
+			{
+				DataPack dpack;
+				CreateDataTimer(0.1, ResetGlovesTimer2, dpack);
+				dpack.WriteCell(client);
+				dpack.WriteCell(activeWeapon);
+				dpack.WriteString(model);
+			}
+			int ent = GetEntPropEnt(client, Prop_Send, "m_hMyWearables");
+			if(ent != -1)
+			{
+				AcceptEntityInput(ent, "KillHierarchy");
+			}
 			SetEntPropString(client, Prop_Send, "m_szArmsModel", model);
-			CreateTimer(0.15, RemoveItemTimer, EntIndexToEntRef(client), TIMER_FLAG_NO_MAPCHANGE);
-		}
 	}
 	else
 	{
-		if(!StrEqual(currentmodel, DEFAULT_ARMS))
-		{
+			int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			if(activeWeapon != -1)
+			{
+				SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", -1);
+			}
+			if(activeWeapon != -1)
+			{
+				DataPack dpack;
+				CreateDataTimer(0.1, ResetGlovesTimer2, dpack);
+				dpack.WriteCell(client);
+				dpack.WriteCell(activeWeapon);
+				dpack.WriteString(DEFAULT_ARMS);
+			}
+			int ent = GetEntPropEnt(client, Prop_Send, "m_hMyWearables");
+			if(ent != -1)
+			{
+				AcceptEntityInput(ent, "KillHierarchy");
+			}
 			SetEntPropString(client, Prop_Send, "m_szArmsModel", DEFAULT_ARMS);
-			CreateTimer(0.15, RemoveItemTimer, EntIndexToEntRef(client), TIMER_FLAG_NO_MAPCHANGE);
-		}
+		//PrintToChat(client, "used %s with class %i",manos[client], cindex);
 	}
 }
 
-public Action RemoveItemTimer(Handle timer ,any ref)
+public Action ResetGlovesTimer2(Handle timer, DataPack pack)
 {
-	int client = EntRefToEntIndex(ref);
-
-	if (client != INVALID_ENT_REFERENCE)
+	char model[128];
+	ResetPack(pack);
+	int clientIndex = pack.ReadCell();
+	int activeWeapon = pack.ReadCell();
+	pack.ReadString(model, 128);
+	
+	if(IsClientInGame(clientIndex))
 	{
-		int item = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-
-		if (item > 0)
-		{
-			RemovePlayerItem(client, item);
-
-			Handle ph=CreateDataPack();
-			WritePackCell(ph, EntIndexToEntRef(client));
-			WritePackCell(ph, EntIndexToEntRef(item));
-			CreateTimer(0.15 , AddItemTimer, ph, TIMER_FLAG_NO_MAPCHANGE);
-		}
+		SetEntPropString(clientIndex, Prop_Send, "m_szArmsModel", model);
+		
+		if(IsValidEntity(activeWeapon)) SetEntPropEnt(clientIndex, Prop_Send, "m_hActiveWeapon", activeWeapon);
 	}
 }
-
-public Action AddItemTimer(Handle timer ,any ph)
-{ 
-	int client, item;
-
-	ResetPack(ph);
-
-	client = EntRefToEntIndex(ReadPackCell(ph));
-	item = EntRefToEntIndex(ReadPackCell(ph));
-
-	if (client != INVALID_ENT_REFERENCE && item != INVALID_ENT_REFERENCE)
-	{
-		EquipPlayerWeapon(client, item);
-	}
-}
-
-//
 
 public OnAllPluginsLoaded()
 {
